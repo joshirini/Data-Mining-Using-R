@@ -1,0 +1,169 @@
+---
+title: "VoterPref_Logistic_Regression_markdown"
+author: "Rini Joshi"
+date: "2/19/2017"
+output: word_document
+---
+
+```{r Data_prep}
+
+#Load the data
+vp_df<-read.csv(file="VoterPref.csv",header = TRUE)
+attach(vp_df)
+
+#Classify Preference as 0 and 1
+CLASS <- ifelse(vp_df$PREFERENCE=="Against", 1, 0)
+vp_df <- cbind(vp_df,CLASS)
+
+#setting the seed
+set.seed(123457)
+
+#dividing the dataset into Training and Test
+train<- sample(nrow(vp_df),0.7*nrow(vp_df))
+vp_df_train<-vp_df[train,]
+vp_df_validation<-vp_df[-train,]
+
+```
+
+```{r Logistic_regression_train}
+#fitting model on training dataset
+df_fit <- glm(CLASS~GENDER+INCOME+AGE,data=vp_df_train, family="binomial")
+summary(df_fit)
+
+library("caret")
+
+#predicting on both training(in-sample) and test(out-of-sample) dataset and computing confusion Matrix
+insample_predict <- predict(df_fit,vp_df_train, type="response")
+insample_actual <- vp_df_train$CLASS
+insample_roundoff <- ifelse(insample_predict>0.5,1,0)
+insample_tab <- table(insample_roundoff,insample_actual)
+confusionMatrix(insample_tab, positive = "1")
+
+outsample_predict <- predict(df_fit,vp_df_validation, type="response")
+outsample_actual <- vp_df_validation$CLASS
+outsample_roundoff <- ifelse(outsample_predict>0.5,1,0)
+outsample_tab <- table(outsample_roundoff,outsample_actual)
+confusionMatrix(outsample_tab, positive = "1")
+
+```
+
+```{r PlottingROC_Curves}
+library("ROCR")
+rocr_insamp_pred <- prediction(insample_predict, insample_actual)
+rocr_insamp_perf <- performance(rocr_insamp_pred, "tpr", "fpr")
+
+rocr_outsamp_pred <- prediction(outsample_predict, outsample_actual)
+rocr_outsamp_perf <- performance(rocr_outsamp_pred, "tpr", "fpr")
+plot(rocr_insamp_perf,type="l",col="red", main = "ROC curves for VoterPref data")
+par(new=TRUE)
+plot(rocr_outsamp_perf,type="l",col="blue")
+legend(0.6,0.3,c("Insample","Outsample"),lty = c(1,1),col = c("red","blue"))
+
+```
+
+
+```{r Plotting_Accuracy_against_Cutoff}
+rocr_insamp_acc <- performance(rocr_insamp_pred, measure = "acc")
+
+rocr_outsamp_acc <- performance(rocr_outsamp_pred, measure = "acc")
+#Training dataset
+plot(rocr_insamp_acc,col="red", main = "Accuracy vs cutoff for InSample VoterPref data")
+#Test Dataset
+plot(rocr_outsamp_acc,col="blue", main = "Accuracy vs cutoff for OutSample VoterPref data")
+
+```
+
+```{r Finding_Optimal_Cutoff_I}
+
+#At which value of cutoff_I is accuracy maximized for training dataset?
+insamp_max_acc = which.max( slot(rocr_insamp_acc, "y.values")[[1]] )
+insamp_acc = slot(rocr_insamp_acc, "y.values")[[1]][insamp_max_acc]
+insamp_cutoff = slot(rocr_insamp_acc, "x.values")[[1]][insamp_max_acc]
+print(c(Training_accuracy= insamp_acc, Training_cutoff = insamp_cutoff))
+
+
+outsamp_max_acc = which.max( slot(rocr_outsamp_acc, "y.values")[[1]] )
+outsamp_acc = slot(rocr_outsamp_acc, "y.values")[[1]][outsamp_max_acc]
+outsamp_cutoff = slot(rocr_outsamp_acc, "x.values")[[1]][outsamp_max_acc]
+print(c(Validation_accuracy= outsamp_acc, Validation_cutoff = outsamp_cutoff))
+```
+
+```{r Test_Accuracy_using_Optimal_Cutoff}
+#Using the optimal Cutoff found, computing the Confusion Matrix for test dataset
+outsample_roundoff_2f <- ifelse(outsample_predict>insamp_cutoff,1,0)
+outsample_tab_2f <- table(outsample_actual,outsample_roundoff_2f)
+confusionMatrix(outsample_tab_2f, positive = "1")
+
+```
+
+
+```{r Misclassfication Costs}
+#Suppose that there are no costs or benefits associated with correct classification but misclassifying someone who is “For” as being “Against” has a cost of 4, whereas misclassifying someone who is “Against” as being “For” has a cost of 1
+
+#Finding cutoff_II that minimizes misclassfication cost
+cutoff <- seq(0, 1, length = 100)
+misclass_fp_cost <- numeric(100)
+misclass_fn_cost <- numeric(100)
+misclass_cost <- numeric(100)
+
+cutoff_misclass_tab <- data.frame(Cutoff = cutoff, fp_cost = misclass_fp_cost,fn_cost = misclass_fn_cost, Tot_misclass_cost = misclass_cost)
+
+for (i in 1:100) {
+  cutoff_misclass_tab$fp_cost[i] <- sum(insample_predict > cutoff[i] & insample_actual == 0)*4
+  cutoff_misclass_tab$fn_cost[i] <- sum(insample_predict < cutoff[i] & insample_actual == 1)*1
+  cutoff_misclass_tab$Tot_misclass_cost[i] <- cutoff_misclass_tab$fp_cost[i] + cutoff_misclass_tab$fn_cost[i]
+}
+
+cutoff_misclass_tab
+plot (Tot_misclass_cost~cutoff, data = cutoff_misclass_tab, col="green")
+```
+
+
+```{r Misclassification_Cost_using_optimalCutoff_II}
+#As found from previous part, cutoff with min misclassification cost is 0.8181
+mincost_train_cutoff <- 0.81818182
+total_insample_misclass_cost <- sum(insample_predict > mincost_train_cutoff  & insample_actual == 0)*4 + sum(insample_predict < mincost_train_cutoff & insample_actual == 1)*1
+#Training Misclassification Cost
+total_insample_misclass_cost
+
+total_outsample_misclass_cost <- sum(outsample_predict > mincost_train_cutoff & outsample_actual == 0)*4 + sum(outsample_predict < mincost_train_cutoff & outsample_actual == 1)*1
+#Test Misclassification Cost
+total_outsample_misclass_cost
+```
+
+
+```{r Misclassification_Cost_using_optimal_Cutoff_I}
+cutoff_3c <- 0.4625541
+total_insample_misclass_cost_3c <- sum(insample_predict > cutoff_3c  & insample_actual == 0)*4 + sum(insample_predict < cutoff_3c & insample_actual == 1)*1
+total_insample_misclass_cost_3c
+
+total_outsample_misclass_cost_3c <- sum(outsample_predict > cutoff_3c & outsample_actual == 0)*4 + sum(outsample_predict < cutoff_3c & outsample_actual == 1)*1
+total_outsample_misclass_cost_3c
+```
+
+```{r data lift curve/gains chart}
+#TRaining dataset
+temp3 <- data.frame(insample_predict,insample_actual)
+temp4 <- temp3[order(-insample_predict),]
+temp4$Gains <- cumsum(temp4$insample_actual)
+plot(temp4$Gains,type="n",main="Validation Data Gains Chart",xlab="Number of Cases",ylab="Cumulative Success")
+lines(temp4$Gains)
+abline(0,sum(temp4$insample_actual)/nrow(temp4),lty = 2, col="red")
+
+
+#Validation dataset
+temp1 <- data.frame(outsample_predict,outsample_actual)
+temp2 <- temp1[order(-outsample_predict),]
+temp2$Gains <- cumsum(temp2$outsample_actual)
+plot(temp2$Gains,type="n",main="Validation Data Gains Chart",xlab="Number of Cases",ylab="Cumulative Success")
+lines(temp2$Gains)
+abline(0,sum(temp2$outsample_actual)/nrow(temp2),lty = 2, col="blue")
+
+
+outsample_roundoff_x <- ifelse(outsample_predict>0.4625541,1,0)
+outsample_tab_x <- table(outsample_actual,outsample_roundoff_x)
+confusionMatrix(outsample_tab_x, positive = "1")
+
+```
+
+

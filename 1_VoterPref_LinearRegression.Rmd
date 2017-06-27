@@ -1,0 +1,63 @@
+---
+title: "VoterPref_LinearRegression_markdown"
+author: "Rini Joshi"
+date: "2/13/2017"
+output: word_document
+---
+
+
+```{r data_preparation}
+
+#read the dataset
+vp_df<-read.csv(file="VoterPref.csv",header = TRUE)
+attach(vp_df)
+
+#classify preference of voters to 1 if Against and 0 for For
+CLASS <- ifelse(vp_df$PREFERENCE=="Against", 1, 0)
+vp_df <- cbind(vp_df,CLASS)
+
+#setting the seed
+set.seed(123457)
+
+#splitting the data into train and test data with ratio 7:3
+train<- sample(nrow(vp_df),0.7*nrow(vp_df))
+vp_df_train<-vp_df[train,]
+vp_df_validation<-vp_df[-train,]
+
+```
+
+```{r Exploratory_Analysis_of_Training_dataset}
+
+#boxplot of income and age broken by preference
+boxplot(INCOME~PREFERENCE,vp_df_train)
+
+boxplot(AGE~PREFERENCE,vp_df_train)
+
+#Table of preference showing proportions For and Against
+table(vp_df_train$PREFERENCE)
+
+#Table of count of Preference broken by Gender
+table(vp_df_train$PREFERENCE,vp_df_train$GENDER)
+
+```
+
+```{r Linear_Regression_on_Training_dataset}
+
+#develop Linear Regression Model using train dataset
+df_fit <- lm(CLASS~GENDER+INCOME+AGE,data=vp_df_train)
+summary(df_fit)
+
+#Predicting the values using the model on training dataset using 0.5 as cutoff
+insample_predict <- predict(df_fit,vp_df_train)
+insample_actual <- vp_df_train$CLASS
+
+#Compyting Average Error, RMSE and Mean Absolute Error of the prediction
+Metrics <- c("Average Error", "RMSE", "MAE")
+x1 <- mean(insample_actual- insample_predict)
+x2 <- sqrt(mean((insample_actual - insample_predict)^2))
+x3 <- mean(abs(insample_actual- insample_predict))
+Values <- c(x1, x2, x3)
+insample_errors <- data.frame(Metrics, Values)
+insample_errors
+```
+
